@@ -1,0 +1,8 @@
+---
+# tasks file for deploy-EDR
+- name: Installing Endpoint Detection & Response
+  include_tasks: "{{ item }}"
+  with_items:
+    - "install_{{ ansible_os_family | lower }}.yml"
+  tags: edr_install
+

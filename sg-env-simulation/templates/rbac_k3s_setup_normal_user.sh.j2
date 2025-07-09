@@ -1,0 +1,369 @@
+#!/bin/bash
+# This script creates or renews a Linux user and K3s access with full permissions in a specified namespace.
+# Certificate expiration is set to 1 year (365 days) with automated renewal.
+#-----------------------------------------------------------------------------------------------------------------------
+# Certificate creation steps ensure that a private key is generated, a CSR is created and submitted to Kubernetes for approval, 
+# and the signed certificate is retrieved for use in kubeconfig.
+#-----------------------------------------------------------------------------------------------------------------------
+
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No color
+
+# Variables
+NAMESPACE="{{ namespace }}"
+USER_NAME="{{ user_name }}"
+USER_PASSWORD="{{ user_password }}"
+TEAM="DevOps"                                                             # Team name included in the certificate metadata.
+ISSUER="ServiceNow"                                                       # Issuer name included in the certificate metadata.
+K3S_CONFIG="/etc/rancher/k3s/k3s.yaml"
+K3S_API_ADDRESS=$(grep server: "$K3S_CONFIG" | awk '{print $2}')          # The API server address extracted from the K3s config.
+CERTS_DIR="${USER_NAME}_certs"
+KUBECONFIG_PATH="/root/.kube/config-${USER_NAME}"
+ROLE_NAME="namespace-admin"
+ROLE_BINDING_NAME="namespace-admin-binding"
+CERT_EXPIRATION=31536000                                                  # 1 year in seconds (365 days * 24 * 60 * 60)
+RENEWAL_THRESHOLD_DAYS=30                                                 # Start renewal process when certificate has less than 30 days remaining
+
+# Paths
+USER_CERT="${CERTS_DIR}/${USER_NAME}.pem"
+USER_CSR="${CERTS_DIR}/${USER_NAME}.csr"
+USER_CRT="${CERTS_DIR}/${USER_NAME}.crt"
+ROLE_YAML_PATH="namespace-admin-role.yaml"
+ROLE_BINDING_YAML_PATH="namespace-admin-rolebinding.yaml"
+CERT_INFO_FILE="${CERTS_DIR}/cert_info.txt"
+
+# Function to log messages with timestamp
+log_message() {
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    case "$1" in
+        "INFO")
+            echo -e "${GREEN}[$timestamp] INFO: $2${NC}"
+            ;;
+        "WARN")
+            echo -e "${YELLOW}[$timestamp] WARNING: $2${NC}"
+            ;;
+        "ERROR")
+            echo -e "${RED}[$timestamp] ERROR: $2${NC}"
+            ;;
+        *)
+            echo -e "[$timestamp] $2"
+            ;;
+    esac
+}
+
+# Function to validate certificate
+validate_certificate() {
+    if [[ ! -f "$USER_CRT" ]]; then
+        log_message "WARN" "Certificate file not found"
+        return 1
+    fi
+
+    # Check if certificate is valid and get details
+    if ! openssl x509 -in "$USER_CRT" -noout 2>/dev/null; then
+        log_message "ERROR" "Invalid certificate file"
+        return 1
+    fi
+
+    # Get certificate details with enhanced issuer information
+    local subject=$(openssl x509 -in "$USER_CRT" -noout -subject | sed 's/subject=//')
+    local issuer=$(openssl x509 -in "$USER_CRT" -noout -issuer | sed 's/issuer=//')
+    local start_date=$(openssl x509 -in "$USER_CRT" -noout -startdate | cut -d= -f2)
+    local end_date=$(openssl x509 -in "$USER_CRT" -noout -enddate | cut -d= -f2)
+    local ou_name=$(openssl x509 -in "$USER_CRT" -noout -subject | grep -o "/OU=[^/]*" | cut -d= -f2)
+    
+    # Save enhanced certificate information
+    mkdir -p "$CERTS_DIR"
+    cat > "$CERT_INFO_FILE" << EOF
+Certificate Information:
+Subject: $subject
+Issuer: $issuer
+Organizational Unit (Issuer): $ou_name
+Valid From: $start_date
+Valid Until: $end_date
+EOF
+
+    return 0
+}
+
+# Enhanced function to check certificate expiration and handle renewal
+check_and_renew_cert() {
+    local force_renewal=false
+    if [[ "$1" == "--force" ]]; then
+        force_renewal=true
+    fi
+
+    if [[ -f "$USER_CRT" ]]; then
+        if ! validate_certificate; then
+            log_message "WARN" "Certificate validation failed. Initiating renewal process."
+            force_renewal=true
+        else
+            local exp_date=$(openssl x509 -enddate -noout -in "$USER_CRT" | cut -d= -f2)
+            local exp_timestamp=$(date -d "$exp_date" +%s)
+            local now_timestamp=$(date +%s)
+            local days_left=$(( (exp_timestamp - now_timestamp) / 86400 ))
+
+            if (( days_left <= RENEWAL_THRESHOLD_DAYS )); then
+                log_message "WARN" "Certificate will expire in $days_left days (on $exp_date)"
+                force_renewal=true
+            elif (( now_timestamp > exp_timestamp )); then
+                log_message "WARN" "Certificate expired on $exp_date"
+                force_renewal=true
+            else
+                log_message "INFO" "Certificate is valid for $days_left more days (until $exp_date)"
+                if [[ "$force_renewal" == true ]]; then
+                    log_message "INFO" "Forcing renewal as requested"
+                else
+                    return 0
+                fi
+            fi
+        fi
+    else
+        log_message "WARN" "No existing certificate found"
+        force_renewal=true
+    fi
+
+    if [[ "$force_renewal" == true ]]; then
+        log_message "INFO" "Starting certificate renewal process"
+        
+        # Backup existing certificate if it exists
+        if [[ -f "$USER_CRT" ]]; then
+            local backup_dir="${CERTS_DIR}/backup_$(date +%Y%m%d_%H%M%S)"
+            mkdir -p "$backup_dir"
+            cp "$USER_CRT" "$backup_dir/"
+            cp "$USER_CERT" "$backup_dir/"
+            log_message "INFO" "Backed up existing certificates to $backup_dir"
+        fi
+
+        # Remove existing CSR if it exists
+        kubectl delete csr "$USER_NAME" 2>/dev/null
+
+        generate_k3s_user_cert
+        create_k3s_csr
+        retrieve_k3s_cert
+        
+        if validate_certificate; then
+            log_message "INFO" "Certificate renewal completed successfully"
+            configure_kubeconfig
+        else
+            log_message "ERROR" "Certificate renewal failed"
+            if [[ -d "$backup_dir" ]]; then
+                log_message "INFO" "Restoring from backup"
+                cp "$backup_dir/$USER_NAME.crt" "$USER_CRT"
+                cp "$backup_dir/$USER_NAME.pem" "$USER_CERT"
+            fi
+            return 1
+        fi
+    fi
+}
+
+# Function to create Linux user
+create_linux_user() {
+    if id "$USER_NAME" &>/dev/null; then
+        log_message "INFO" "Linux user $USER_NAME already exists"
+    else
+        log_message "INFO" "Creating Linux user: $USER_NAME"
+        if sudo useradd -m "$USER_NAME"; then
+            echo "$USER_NAME:$USER_PASSWORD" | sudo chpasswd
+            sudo chage -m 0 -M 99999 -I -1 -E -1 "$USER_NAME"
+            log_message "INFO" "Linux user $USER_NAME created successfully"
+        else
+            log_message "ERROR" "Failed to create user $USER_NAME"
+            exit 1
+        fi
+    fi
+}
+
+# Function to generate K3s user certificate and CSR with issuer
+generate_k3s_user_cert() {
+    log_message "INFO" "Generating new certificate for $USER_NAME"
+    mkdir -p "$CERTS_DIR"
+    
+    if ! openssl genrsa -out "$USER_CERT" 4096; then
+        log_message "ERROR" "Failed to generate RSA private key"
+        return 1
+    fi
+
+    if ! openssl req -new -key "$USER_CERT" -out "$USER_CSR" \
+        -subj "/CN=$USER_NAME/O=$TEAM/OU=$ISSUER"; then
+        log_message "ERROR" "Failed to create CSR"
+        return 1
+    fi
+}
+
+# Function to create CSR in K3s
+create_k3s_csr() {
+    log_message "INFO" "Creating K3s CertificateSigningRequest for $USER_NAME"
+    local csr_base64=$(base64 < "$USER_CSR" | tr -d "\n")
+
+    cat <<EOF | kubectl apply -f -
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: $USER_NAME
+spec:
+  request: $csr_base64
+  signerName: kubernetes.io/kube-apiserver-client
+  expirationSeconds: $CERT_EXPIRATION
+  usages:
+  - digital signature
+  - key encipherment
+  - client auth
+EOF
+
+    # Wait for CSR to be created
+    local retries=0
+    while ! kubectl get csr "$USER_NAME" &>/dev/null && ((retries < 5)); do
+        sleep 3
+        ((retries++))
+    done
+
+    if ! kubectl certificate approve "$USER_NAME"; then
+        log_message "ERROR" "Failed to approve certificate request"
+        return 1
+    fi
+
+    log_message "INFO" "Certificate request approved for $USER_NAME"
+}
+
+# Function to retrieve signed certificate
+retrieve_k3s_cert() {
+    log_message "INFO" "Retrieving signed certificate for $USER_NAME"
+    if ! kubectl get csr/"$USER_NAME" -o jsonpath="{.status.certificate}" | base64 -d > "$USER_CRT"; then
+        log_message "ERROR" "Failed to retrieve signed certificate"
+        return 1
+    fi
+    log_message "INFO" "Certificate retrieved successfully"
+}
+
+# Function to configure kubeconfig
+configure_kubeconfig() {
+    log_message "INFO" "Configuring kubeconfig for $USER_NAME"
+    K3S_CA_CERT="/var/lib/rancher/k3s/server/tls/server-ca.crt"
+    
+    kubectl config --kubeconfig="$KUBECONFIG_PATH" \
+        set-cluster k3s \
+        --server="$K3S_API_ADDRESS" \
+        --certificate-authority="$K3S_CA_CERT" \
+        --embed-certs=true
+
+    kubectl config --kubeconfig="$KUBECONFIG_PATH" \
+        set-credentials "$USER_NAME" \
+        --client-certificate="$USER_CRT" \
+        --client-key="$USER_CERT" \
+        --embed-certs=true
+
+    kubectl config --kubeconfig="$KUBECONFIG_PATH" \
+        set-context default \
+        --cluster=k3s \
+        --user="$USER_NAME"
+
+    kubectl config --kubeconfig="$KUBECONFIG_PATH" \
+        use-context default
+
+    log_message "INFO" "Kubeconfig configured successfully"
+}
+
+# Function to ensure namespace exists
+ensure_namespace() {
+    if ! kubectl get namespace "$NAMESPACE" &>/dev/null; then
+        log_message "INFO" "Creating namespace: $NAMESPACE"
+        kubectl create namespace "$NAMESPACE"
+    else
+        log_message "INFO" "Namespace '$NAMESPACE' already exists"
+    fi
+}
+
+# Function to create Role and RoleBinding
+create_role_and_binding() {
+    log_message "INFO" "Creating Role and RoleBinding in namespace $NAMESPACE"
+    
+    # Create Role
+    cat <<EOF > "$ROLE_YAML_PATH"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: $NAMESPACE
+  name: $ROLE_NAME
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+EOF
+
+    # Create RoleBinding
+    cat <<EOF > "$ROLE_BINDING_YAML_PATH"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: $ROLE_BINDING_NAME
+  namespace: $NAMESPACE
+subjects:
+- kind: User
+  name: $USER_NAME
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: $ROLE_NAME
+  apiGroup: rbac.authorization.k8s.io
+EOF
+
+    kubectl apply -f "$ROLE_YAML_PATH"
+    kubectl apply -f "$ROLE_BINDING_YAML_PATH"
+    log_message "INFO" "Role and RoleBinding created successfully"
+}
+
+# Function to transfer kubeconfig
+transfer_kubeconfig() {
+    log_message "INFO" "Setting up kubeconfig for user $USER_NAME"
+    sudo mkdir -p "/home/$USER_NAME/.kube"
+    sudo cp "$KUBECONFIG_PATH" "/home/$USER_NAME/.kube/config"
+    sudo chown "$USER_NAME:$USER_NAME" "/home/$USER_NAME/.kube/config"
+    echo "export KUBECONFIG=/home/$USER_NAME/.kube/config" | sudo tee -a "/home/$USER_NAME/.bashrc"
+    log_message "INFO" "Kubeconfig transferred and permissions set"
+}
+
+# Function to clean up temporary files
+cleanup() {
+    log_message "INFO" "Cleaning up temporary files"
+    rm -f "$USER_CSR" "$ROLE_YAML_PATH" "$ROLE_BINDING_YAML_PATH"
+    log_message "INFO" "Cleanup completed"
+}
+
+# Main execution
+main() {
+    local exit_code=0
+    
+    log_message "INFO" "Starting K3s user management script"
+    log_message "INFO" "Using issuer: $ISSUER"
+    
+    create_linux_user || exit_code=$?
+    check_and_renew_cert || exit_code=$?
+    ensure_namespace || exit_code=$?
+    create_role_and_binding || exit_code=$?
+    sleep 5
+    transfer_kubeconfig || exit_code=$?
+    cleanup || exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        log_message "INFO" "Script execution completed successfully"
+        log_message "INFO" "User $USER_NAME now has full permissions in namespace $NAMESPACE"
+        log_message "INFO" "Certificate created with issuer: $ISSUER"
+        log_message "INFO" "To verify, use: kubectl --kubeconfig=/home/$USER_NAME/.kube/config get pods -n $NAMESPACE"
+        
+        # Display certificate information
+        if [[ -f "$CERT_INFO_FILE" ]]; then
+            echo -e "\nCertificate Details:"
+            cat "$CERT_INFO_FILE"
+        fi
+    else
+        log_message "ERROR" "Script execution completed with errors"
+    fi
+
+    return $exit_code
+}
+
+# Execute main function
+main

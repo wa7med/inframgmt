@@ -1,0 +1,19 @@
+- name: debug module Playbook
+  hosts: k3s
+  vars:
+    variable1: |-
+      exactly as you see
+      will appear these three
+      lines of poetry      
+    variable2: >-
+      this is really a
+      single line of text
+      despite appearances      
+  tasks:
+    - name: print variable1
+      ansible.builtin.debug:
+        msg: "{{ variable1.split('\n') }}"
+    - name: print variable2
+      ansible.builtin.debug:
+        var: variable2
+

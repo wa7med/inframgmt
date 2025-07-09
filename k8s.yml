@@ -1,0 +1,171 @@
+---
+- name: Deploy and setup a single-node Kubernetes cluster on Rocky Linux
+  hosts: sg-env
+  become: yes
+  vars:
+    k8s_version: "1.28.0"  # Specify the Kubernetes version
+    pod_network_cidr: "10.244.0.0/16"  # Flannel network CIDR
+
+  tasks:
+    - name: Ensure the system is up to date
+      dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+
+    - name: Disable SELinux (required for Kubernetes)
+      selinux:
+        state: disabled
+
+    - name: Disable swap (required for Kubernetes)
+      shell: |
+        swapoff -a  # Disable all swap devices
+        sed -i '/swap/d' /etc/fstab  # Remove swap entries from /etc/fstab
+      args:
+        removes: /proc/swaps 
+
+    - name: Containerd Installation and Configuration
+      block:
+        - name: Disable and stop Podman service
+          systemd:
+            name: podman
+            enabled: no
+            state: stopped
+          ignore_errors: yes
+
+        - name: Remove Podman package
+          dnf:
+            name: podman
+            state: absent   
+          ignore_errors: yes
+
+        - name: Add Docker repository
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/centos/docker-ce.repo
+            dest: /etc/yum.repos.d/docker-ce.repo
+
+        - name: Install Containerd
+          dnf:
+            name: containerd.io
+            state: present
+            allowerasing: yes
+
+        - name: Configure containerd
+          copy:
+            dest: /etc/containerd/config.toml
+            content: |
+              version = 2
+              [plugins."io.containerd.grpc.v1.cri"]
+                sandbox_image = "registry.k8s.io/pause:3.9"
+              [plugins."io.containerd.grpc.v1.cri".containerd]
+                snapshotter = "overlayfs"
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                runtime_type = "io.containerd.runc.v2"
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                SystemdCgroup = true
+
+        - name: Enable and start containerd service
+          systemd:
+            name: containerd
+            enabled: yes
+            state: started
+
+        - name: Reload systemd daemon
+          systemd:
+            daemon_reload: yes
+
+        - name: Restart containerd
+          systemd:
+            name: containerd
+            state: restarted
+
+        - name: Load kernel modules required for Kubernetes
+          modprobe:
+            name: "{{ item }}"
+            state: present
+          loop:
+            - br_netfilter
+            - overlay
+
+    - name: Configure sysctl parameters for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: net.bridge.bridge-nf-call-iptables, value: 1 }
+        - { name: net.bridge.bridge-nf-call-ip6tables, value: 1 }
+        - { name: net.ipv4.ip_forward, value: 1 }
+
+    - name: Install Kubernetes (kubectl, kubeadm, kubelet)
+      block:
+        - name: Add Kubernetes repository
+          yum_repository:
+            name: kubernetes
+            description: Kubernetes Repository
+            baseurl: https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+            enabled: 1
+            gpgcheck: 1
+            gpgkey: https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+            exclude: kubelet,kubeadm,kubectl,cri-tools,kubernetes-cni
+
+        - name: Install Kubernetes tools
+          dnf:
+            name:
+              - kubelet-{{ k8s_version }}
+              - kubeadm-{{ k8s_version }}
+              - kubectl-{{ k8s_version }}
+            state: present
+            disable_excludes: kubernetes
+
+        - name: Enable and start kubelet service
+          systemd:
+            name: kubelet
+            state: started
+            enabled: true
+
+    - name: Initialize Kubernetes cluster using kubeadm
+      shell: |
+        kubeadm init --pod-network-cidr={{ pod_network_cidr }} --ignore-preflight-errors=Swap
+      args:
+        creates: /etc/kubernetes/admin.conf
+
+    - name: Ensure the .kube directory exists
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: Set up kubeconfig for the root user
+      copy:
+        dest: /root/.kube/config
+        src: /etc/kubernetes/admin.conf
+        owner: root
+        group: root
+        mode: '0600'
+        remote_src: yes
+
+    - name: Install Flannel CNI plugin
+      shell: |
+        kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+      args:
+        creates: /etc/cni/net.d/10-flannel.conflist
+
+    - name: Allow scheduling pods on the master node (single-node cluster)
+      shell: |
+        kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+      args:
+        creates: /etc/kubernetes/manifests/kube-apiserver.yaml  # Ensures idempotency
+
+    - name: Verify Kubernetes cluster status
+      shell: |
+        kubectl get nodes
+      register: k8s_status
+      changed_when: false
+
+    - name: Display Kubernetes cluster status
+      debug:
+        var: k8s_status.stdout_lines

@@ -1,0 +1,12 @@
+---
+- name: Prepare server with required tools and configurations
+  hosts: sg-env
+  vars:
+
+    ansible_user: "{{ lookup('env', 'USER') }}"  # Uses the current user if not specified
+  vars_files:
+    - env_vars.yml
+
+  roles:
+    - role: sg-env-simulation
+

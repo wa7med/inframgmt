@@ -1,0 +1,30 @@
+---
+#It has been sccessfully tested 08.08.2024
+#Author Wagdi Mohammed
+- name: Copy EDR installer for Ubuntu
+  copy:
+    src: falcon-sensor_6.37.0-13402_amd64.deb
+    dest: /tmp/edr_installer.deb
+
+- name: Install EDR tool on Ubuntu
+  apt:
+    deb: /tmp/edr_installer.deb
+  become: yes
+
+- name: Set CID for EDR sensor
+  command: /opt/CrowdStrike/falconctl -s --cid={{ cid }}
+  become: yes
+
+- name: Start EDR service
+  service:
+    name: falcon-sensor
+    state: started
+  become: yes
+
+- name: Verify EDR sensor status
+  shell: ps -e | grep falcon-sensor
+  register: sensor_status
+
+- debug:
+    msg: "The EDR sensor status: {{ sensor_status.stdout }}"
+

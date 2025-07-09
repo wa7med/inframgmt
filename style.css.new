@@ -1,0 +1,63 @@
+.report-body {
+    max-width: 1160px;
+    overflow-x: auto;
+    padding: 20px;
+}
+
+.report-topic-heading,
+.item1 {
+    width: 1120px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-item,
+.column-item {
+    flex: 1;
+    text-align: center;
+}
+
+.header-item {
+    font-weight: bold;
+}
+
+.t-op {
+    font-size: 18px;
+    letter-spacing: 0px;
+}
+
+.t-op-nextlvl {
+    font-size: 14px;
+    letter-spacing: 0px;
+    font-weight: 600;
+}
+
+.items {
+    width: 1120px;
+    margin-top: 15px;
+}
+
+.item1 {
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.label-tag, .label-tag-red {
+    width: 100px;
+    text-align: center;
+    border-radius: 4px;
+    padding: 5px;
+}
+
+.label-tag {
+    background-color: rgb(0, 177, 0);
+    color: white;
+}
+
+.label-tag-red {
+    background-color: rgb(255, 0, 0);
+    color: white;
+}

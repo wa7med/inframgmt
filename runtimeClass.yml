@@ -1,0 +1,28 @@
+---
+- name: RuntimeClass
+  hosts: sg-env
+  tasks:
+    - name: Create NVIDIA RuntimeClass
+      block:
+        - name: Apply NVIDIA RuntimeClass configuration
+          shell: |
+            kubectl apply -f - <<EOF
+            apiVersion: node.k8s.io/v1
+            kind: RuntimeClass
+            metadata:
+              name: nvidia
+            handler: nvidia
+            EOF
+          register: runtimeclass_result
+          failed_when: runtimeclass_result.rc != 0
+          changed_when: "'created' in runtimeclass_result.stdout or 'configured' in runtimeclass_result.stdout"
+
+        - name: Check if RuntimeClass creation was successful
+          fail:
+            msg: "Error: Failed to create RuntimeClass 'nvidia'."
+          when: runtimeclass_result.rc != 0
+
+        - name: Confirm RuntimeClass creation
+          debug:
+            msg: "RuntimeClass 'nvidia' created successfully."
+

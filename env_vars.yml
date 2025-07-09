@@ -1,0 +1,14 @@
+# vars.yml
+namespace: "cvp"
+user_name: "cvp_adm"
+user_password: "P@ssw0rd"
+k8s_firewall_ports:
+  - "22"
+  - "80"
+  - "443"
+  - "6443"
+  - "2379-2380"
+  - "10250"
+  - "10251"
+  - "10252"
+

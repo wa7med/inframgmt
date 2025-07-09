@@ -1,0 +1,23 @@
+---
+
+- name: Download EDR installer for Windows
+  copy:
+    src: WindowsSensor(6.31.14505).exe
+    dest: C:\Windows\Temp\edr_installer.exe
+
+- name: Install EDR tool on Windows
+  win_shell: |
+    C:\Windows\Temp\edr_installer.exe /quiet /norestart /cid={{ cid }}
+  args:
+    executable: cmd
+
+- name: Verify EDR service status
+  win_service:
+    name: csagent
+    start_mode: auto
+    state: started
+  register: service_status
+
+- debug:
+    msg: "The EDR service status: {{ service_status }}"
+

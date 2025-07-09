@@ -1,0 +1,57 @@
+---
+#It has been sccessfully tested 08.08.2024
+#Author Wagdi Mohammed
+- name: Copy EDR installer for CentOS/Rocky
+  copy:
+     src: falcon-sensor-6.37.0-13402.el8.x86_64.rpm
+     dest: /tmp/edr_installer.rpm
+
+# - name: Install Python 3.x on CentOS/Rocky using raw
+#   raw: |
+#     yum install -y python3
+#   when: ansible_python_interpreter is not defined or ansible_python_interpreter == "/usr/bin/python" or ansible_python_interpreter is search("python2.*")
+
+# - name: Verify Python 3 installation
+#   raw: python3 --version
+#   when: ansible_python_interpreter is not defined or ansible_python_interpreter == "/usr/bin/python" or ansible_python_interpreter is search("python2.*")
+
+# - name: Set Python 3 as the default interpreter for Ansible
+#   set_fact:
+#     ansible_python_interpreter: /usr/bin/python3
+
+# - name: Ensure Python 3.12 is installed on CentOS/Rocky
+#   yum:
+#     name: python3.12
+#     state: present
+#   when: ansible_distribution in ["CentOS", "Rocky"]
+
+# - name: Set Python 3.12 as the default python3
+#   alternatives:
+#     name: python3
+#     path: /usr/bin/python3.12
+#   when: ansible_distribution in ["CentOS", "Rocky"]
+
+     
+- name: Install EDR tool on CentOS/Rocky
+  yum:
+    name: /tmp/edr_installer.rpm
+    state: present
+    disable_gpg_check: yes
+
+
+- name: Set CID for EDR sensor
+  command: /opt/CrowdStrike/falconctl -s --cid={{ cid }} -f
+ 
+- name: Start EDR service
+  service:
+    name: falcon-sensor
+    state: started
+ 
+
+- name: Verify EDR sensor status
+  shell: ps -e | grep falcon-sensor
+  register: sensor_status
+
+- debug:
+    msg: "The EDR sensor status: {{ sensor_status.stdout }}"
+

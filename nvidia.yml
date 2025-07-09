@@ -1,0 +1,6 @@
+---
+- name: Prepare server with required tools and configurations
+  hosts: sg-env
+  roles:
+    - role: nvidia-driver-installer
+

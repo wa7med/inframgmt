@@ -1,0 +1,6 @@
+---
+- hosts: all
+  roles:
+    - role: add_tenable_user
+      tags: add_tenable_user
+

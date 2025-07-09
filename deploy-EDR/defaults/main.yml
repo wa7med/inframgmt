@@ -1,0 +1,7 @@
+---
+# defaults file for deploy-EDR
+cid: "B6792079B6944E48AA0EE3A06AA1FBBF-58"
+windows_download_url: "https://my.servicenow.com/sys_attachment.do?sys_id=d3c798df97e6f1102af3fff3a253afb3"
+ubuntu_download_url: "https://my.servicenow.com/sys_attachment.do?sys_id=58c758df97e6f1102af3fff3a253afc3"
+centos_download_url: "https://my.servicenow.com/sys_attachment.do?sys_id=77a7d0df97e6f1102af3fff3a253afa4"
+

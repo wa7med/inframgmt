@@ -1,0 +1,5 @@
+---
+- name: install nvidia plugins and runtime class
+  hosts: sg-env
+  roles:
+    - role: nvidia-plugins

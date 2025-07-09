@@ -1,0 +1,121 @@
+#!/bin/bash
+
+# Function to disable Nouveau driver
+disable_nouveau() {
+    if lsmod | grep -i nouveau &>/dev/null; then
+        echo "Disabling Nouveau driver..."
+        sudo bash -c "echo 'blacklist nouveau' > /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
+        sudo bash -c "echo 'options nouveau modeset=0' >> /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
+        sudo dracut --force
+        sudo rmmod nouveau
+        if lsmod | grep -i nouveau &>/dev/null; then
+            echo "Failed to disable Nouveau driver."
+            exit 1
+        fi
+        echo "Nouveau driver disabled successfully."
+    else
+        echo "Nouveau driver is already disabled."
+    fi
+}
+
+# Function to install dependencies
+install_dependencies() {
+    echo "Installing development tools and dependencies..."
+    sudo dnf groupinstall -y "Development Tools"
+    sudo dnf install -y tar bzip2 make automake gcc gcc-c++ pciutils elfutils-libelf-devel libglvnd-devel
+    sudo dnf install -y dnf-plugins-core epel-release pkgconfig vulkan-loader
+}
+
+# Function to download and install NVIDIA driver
+install_nvidia_driver() {
+    local DRIVER_VERSION="535.129.03"
+    local DRIVER_URL="https://us.download.nvidia.com/tesla/$DRIVER_VERSION/NVIDIA-Linux-x86_64-$DRIVER_VERSION.run"
+    local DRIVER_RUNFILE="NVIDIA-Linux-x86_64-$DRIVER_VERSION.run"
+
+    echo "Downloading NVIDIA driver version $DRIVER_VERSION..."
+    wget $DRIVER_URL -O $DRIVER_RUNFILE
+    if [ $? -ne 0 ]; then
+        echo "Failed to download NVIDIA driver version $DRIVER_VERSION."
+        exit 1
+    fi
+    chmod +x $DRIVER_RUNFILE
+
+    echo "Installing NVIDIA driver version $DRIVER_VERSION..."
+    sudo ./$DRIVER_RUNFILE --silent --dkms
+    if [ $? -ne 0 ]; then
+        echo "Failed to install NVIDIA driver version $DRIVER_VERSION."
+        exit 1
+    fi
+
+    echo "NVIDIA driver version $DRIVER_VERSION installed successfully. A system restart is required."
+    RESTART_REQUIRED=1
+}
+
+# Function to install CUDA
+install_cuda() {
+    local CUDA_VERSION="12-2"
+    echo "Installing CUDA $CUDA_VERSION..."
+    sudo dnf install -y cuda-$CUDA_VERSION
+    if [ $? -ne 0 ]; then
+        echo "Failed to install CUDA $CUDA_VERSION."
+        exit 1
+    fi
+    echo "CUDA $CUDA_VERSION installed successfully."
+}
+
+# Function to enable NVIDIA container toolkit repository
+enable_nvidia_container_toolkit_repo() {
+    if ! dnf repolist enabled | grep -q "nvidia-container-toolkit"; then
+        echo "Enabling NVIDIA container toolkit repository..."
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo | sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo
+        if [ $? -ne 0 ]; then
+            echo "Failed to enable the NVIDIA container toolkit repository."
+            exit 1
+        fi
+        echo "NVIDIA container toolkit repository enabled successfully."
+    else
+        echo "NVIDIA container toolkit repository is already enabled."
+    fi
+}
+
+# Function to install NVIDIA container toolkit
+install_nvidia_container_toolkit() {
+    if ! rpm -q nvidia-container-toolkit &>/dev/null; then
+        echo "Installing NVIDIA container toolkit..."
+        sudo dnf install -y nvidia-container-toolkit
+        if [ $? -ne 0 ]; then
+            echo "Failed to install the NVIDIA container toolkit."
+            exit 1
+        fi
+        echo "NVIDIA container toolkit installed successfully."
+    else
+        echo "NVIDIA container toolkit is already installed."
+    fi
+}
+
+# Main function to install NVIDIA driver, CUDA, and enable Kubernetes GPU support
+nvidia_driver_install() {
+    RESTART_REQUIRED=0
+
+    if command -v nvidia-smi &>/dev/null; then
+        echo "NVIDIA Driver already installed."
+    else
+        echo "Installing NVIDIA Driver..."
+        disable_nouveau
+        install_dependencies
+        install_nvidia_driver
+    fi
+
+    enable_nvidia_container_toolkit_repo
+    install_nvidia_container_toolkit
+
+    # Enabling Kubernetes GPU support
+    enable_k8s_gpu_support
+
+    if [ $RESTART_REQUIRED -eq 1 ]; then
+        echo "Please restart your system for the changes to take effect."
+    fi
+}
+
+nvidia_driver_install
+

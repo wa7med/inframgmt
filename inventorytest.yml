@@ -1,0 +1,4 @@
+[ebaeidvm]
+server47 ansible_host=10.191.101.47 ansible_user=sg-user ansible_password=P@ssw0rd
+#server69 ansible_host=10.191.101.69 ansible_user=sg-user ansible_password=P@ssw0rd
+

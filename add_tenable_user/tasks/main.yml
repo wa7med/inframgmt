@@ -1,0 +1,39 @@
+---
+# tasks file for add_tenable_user--tested
+- name: Create tenable.scanner user
+  user:
+    name: "tenable.scanner"
+    password: "{{ 'saiD*fa6u' | password_hash('sha512') }}"
+    shell: /bin/bash
+    append: yes
+
+
+- name: Allow tenable.scanner user to have passwordless sudo
+  lineinfile:
+    dest: /etc/sudoers
+    state: present
+    regexp: '^tenable\.scanner '
+    line: '%tenable.scanner ALL=(ALL) NOPASSWD:ALL'
+    validate: 'visudo -cf %s'
+
+- name: Update bashrc for PythonBrew for foo user
+  lineinfile:
+      dest: /etc/sudoers
+      line: "tenable.scanner ALL=(ALL) NOPASSWD:ALL"
+
+- name: Create .ssh directory for tenable.scanner
+  file:
+    path: /home/tenable.scanner/.ssh
+    state: directory
+    owner: tenable.scanner
+    group: tenable.scanner
+    mode: '0700'
+
+- name: Add public key to authorized_keys for tenable.scanner
+  copy:
+    content: |
+      ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBKBAIByFtFxVrPB5vr25hhZA4HTrVPbcG/Plj7mKMB4nfnwPF4mFrZioDGYxVr/cANkpRiVqW8y5ad+PvTpLR98= tenable.scanner
+    dest: /home/tenable.scanner/.ssh/authorized_keys
+    owner: tenable.scanner
+    group: tenable.scanner
+    mode: '0600'
