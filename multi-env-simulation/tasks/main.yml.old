@@ -1,0 +1,82 @@
+---
+- name: Install python3-pip and wget
+  package:
+    name:
+      - python3-pip
+      - wget
+    state: present
+
+- name: Install PyYAML
+  pip:
+    name: PyYAML
+
+- name: Install k3s
+  shell: curl -fsSL https://get.k3s.io | sh -
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Copy RBAC setup script
+  copy:
+    src: rbac_k3s_setup_normal_user.sh
+    dest: /home/sg-user/rbac_k3s_setup_normal_user.sh
+    mode: '0755'
+
+- name: Run RBAC setup script
+  command: bash /home/sg-user/rbac_k3s_setup_normal_user.sh
+
+- name: Switch to sg-user
+  become: yes
+  become_user: sg-user
+  shell: echo "Switched to sg-user"
+
+- name: Install Helm
+  shell:
+    cmd: |
+      wget https://get.helm.sh/helm-v3.13.1-linux-amd64.tar.gz
+      tar -xf helm-v3.13.1-linux-amd64.tar.gz
+      mv linux-amd64/helm /usr/local/bin/helm
+      helm completion bash >/etc/bash_completion.d/helm
+    creates: /usr/local/bin/helm
+
+- name: Cleanup Helm files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - helm-v3.13.1-linux-amd64.tar.gz
+    - linux-amd64
+
+- name: Install k9s
+  shell:
+    cmd: |
+      mkdir -p /tmp/k9s
+      wget https://github.com/derailed/k9s/releases/download/v0.31.5/k9s_Linux_amd64.tar.gz -O /tmp/k9s/k9s_Linux_amd64.tar.gz
+      tar -zxvf /tmp/k9s/k9s_Linux_amd64.tar.gz -C /tmp/k9s
+      mv /tmp/k9s/k9s /usr/local/bin/
+    creates: /usr/local/bin/k9s
+
+- name: Cleanup k9s files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/k9s/k9s_Linux_amd64.tar.gz
+    - /tmp/k9s
+
+- name: Export KUBECONFIG for k3s
+  lineinfile:
+    path: /home/{{ ansible_user }}/.bashrc
+    line: 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml'
+    create: yes
+
+- name: Source .bashrc to load KUBECONFIG
+  shell: source ~/.bashrc
+  args:
+    executable: /bin/bash
+
+- name: Verify Kubernetes setup
+  command: kubectl get nodes
+  register: k8s_nodes_output
+
+- debug:
+    msg: "{{ k8s_nodes_output.stdout }}"

@@ -1,0 +1,191 @@
+---
+- name: Display welcome message
+  debug:
+    msg: "{{ welcome_message1.split('\n') }}"
+  vars:
+    welcome_message1: |
+      ***********************************************
+      **                                           **
+      **      Welcome to the Shared Server Edge    **
+      **                  Setup!                   **
+      **                                           **
+      ***********************************************
+      **   No prerequisites are required.          **
+      **                                           **
+      ***********************************************
+
+- name: Starting the installation ...
+  pause:
+        seconds: 10
+- name: Install python3-pip and wget
+  package:
+    name:
+      - python3-pip
+      - wget
+    state: present
+    disable_gpg_check: true
+
+
+- name: Install PyYAML
+  pip:
+    name: PyYAML
+  async: 1000
+  poll: 0
+  register: yum_sleeper
+
+- name: 'YUM - check on async task'
+  async_status:
+    jid: "{{ yum_sleeper.ansible_job_id }}"
+  register: job_result
+  until: job_result.finished
+  retries: 100
+
+- name: Install k3s
+  shell: curl -fsSL https://get.k3s.io | sh -
+  args:
+    creates: /usr/local/bin/k3s
+
+- name: Copy k3s nvidia-device-plugin.yml
+  copy:
+    src: nvidia-device-plugin.yml
+    dest: /tmp/nvidia-device-plugin.yml
+ 
+- name: Copy k3s plug-in script
+  copy:
+    src: k8s_plugin.sh
+    dest: /tmp/k8s_plugin.sh
+    mode: '0755'
+
+- name: Apply k8s plugin
+  command: bash /tmp/k8s_plugin.sh
+####
+# Replace the single user RBAC setup with this loop
+- name: Copy RBAC setup script for each user
+  template:
+    src: rbac_k3s_setup_normal_user.sh.j2
+    dest: /tmp/rbac_k3s_setup_{{ item.name }}.sh
+    mode: '0755'
+  loop: "{{ users }}"
+
+- name: Wait for system stabilization
+  wait_for:
+    timeout: 10
+
+- name: Run RBAC setup script for each user
+  command: bash /tmp/rbac_k3s_setup_{{ item.name }}.sh
+  loop: "{{ users }}"
+
+- name: Check if users exist
+  command: getent passwd {{ item.name }}
+  register: user_check
+  ignore_errors: yes
+  loop: "{{ users }}"
+
+- name: Debug message for user existence
+  debug:
+    msg: "The user '{{ item.item.name }}' exists on the system."
+  when: item.rc == 0
+  loop: "{{ user_check.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+###
+
+- name: Install Helm
+  shell: |
+    wget https://get.helm.sh/helm-v3.13.1-linux-amd64.tar.gz
+    tar -xf helm-v3.13.1-linux-amd64.tar.gz
+    mv linux-amd64/helm /usr/local/bin/helm
+    helm completion bash >/etc/bash_completion.d/helm
+  args:
+    creates: /usr/local/bin/helm
+
+- name: Cleanup Helm files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - helm-v3.13.1-linux-amd64.tar.gz
+    - linux-amd64
+
+- name: Install k9s
+  shell: |
+    mkdir -p /tmp/k9s
+    wget https://github.com/derailed/k9s/releases/download/v0.31.5/k9s_Linux_amd64.tar.gz -O /tmp/k9s/k9s_Linux_amd64.tar.gz
+    tar -zxvf /tmp/k9s/k9s_Linux_amd64.tar.gz -C /tmp/k9s
+    mv /tmp/k9s/k9s /usr/local/bin/
+  args:
+    creates: /usr/local/bin/k9s
+
+- name: Cleanup k9s files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/k9s/k9s_Linux_amd64.tar.gz
+    - /tmp/k9s
+
+- name: Export KUBECONFIG for k3s
+  lineinfile:
+    path: /home/{{ ansible_user }}/.bashrc
+    line: 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml'
+    create: yes
+
+- name: Source .bashrc to load KUBECONFIG
+  shell: source /home/{{ ansible_user }}/.bashrc
+  args:
+    executable: /bin/bash
+
+- name: Verify Kubernetes setup
+  command: kubectl get nodes
+  register: k8s_nodes_output
+
+- debug:
+    msg: "{{ k8s_nodes_output.stdout }}"
+
+- name: Check if ports are specified
+  fail:
+    msg: "Error: No ports specified to open."
+  when: k8s_firewall_ports | length == 0
+
+- name: Check if each port is already open, add it if not
+  block:
+        - name: Check if port {{ item }} is open
+          command: "firewall-cmd --list-ports"
+          register: open_ports
+          changed_when: false
+
+        - name: Open port {{ item }} if not already open
+          command: "firewall-cmd --zone=public --add-port={{ item }}/tcp --permanent"
+          when: "'{{ item }}/tcp' not in open_ports.stdout"
+          loop: "{{ k8s_firewall_ports }}"
+
+  rescue:
+        - name: Fail if unable to open ports
+          fail:
+            msg: "Error: Some ports failed to open."
+
+- name: Enable masquerading
+  command: "firewall-cmd --add-masquerade --permanent"
+  register: masquerade_result
+  failed_when: masquerade_result.rc != 0
+
+- name: Reload firewall to apply changes
+  command: "firewall-cmd --reload"
+  register: reload_result
+  failed_when: reload_result.rc != 0
+
+- name: Display success message
+  debug:
+     msg: "Firewall ports opened and reloaded successfully."
+  when: reload_result.rc == 0
+
+
+- name: Add Calico to the trust ZONE
+  command: "sudo firewall-cmd --permanent --zone=trusted --add-interface=cali+"
+
+
+- name: Reload firewall to apply changes
+  command: "firewall-cmd --reload"
+  register: reload_result
+  failed_when: reload_result.rc != 0

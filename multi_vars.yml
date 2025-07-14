@@ -1,0 +1,21 @@
+# Define multiple users with their namespaces and passwords
+users:
+  - name: "cvp_adm"
+    namespace: "cvp"
+    password: "P@ssw0rd"
+  - name: "dev_user"
+    namespace: "development"
+    password: "Dev@2023"
+  - name: "qa_user"
+    namespace: "testing"
+    password: "QA@2023"
+k8s_firewall_ports:
+  - "22"
+  - "80"
+  - "443"
+  - "6443"
+  - "2379-2380"
+  - "10250"
+  - "10251"
+  - "10252"
+
