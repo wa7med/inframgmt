@@ -1,14 +1,41 @@
 # Define multiple users with their namespaces and passwords
 users:
-  - name: "cvp_adm"
-    namespace: "cvp"
+  - name: "u_horus"
+    namespace: "horus"
     password: "P@ssw0rd"
-  - name: "dev_user"
-    namespace: "development"
-    password: "Dev@2023"
-  - name: "qa_user"
-    namespace: "testing"
-    password: "QA@2023"
+
+  - name: "u_sphinx"
+    namespace: "sphinx"
+    password: "P@ssw0rd"
+ 
+  - name: "u_auto"
+    namespace: "automation"
+    password: "P@ssw0rd"
+
+  - name: "u_perform"
+    namespace: "performance"
+    password: "P@ssw0rd"
+ 
+
+  - name: "u_end"
+    namespace: "end-to-end"
+    password: "P@ssw0rd"
+      
+  - name: "u_app"
+    namespace: "app"
+    password: "P@ssw0rd"
+ 
+  
+  - name: "u_devops"
+    namespace: "devops"
+    password: "P@ssw0rd"
+  
+  
+  - name: "u_shared"
+    namespace: "sharedcloud"
+    password: "P@ssw0rd"
+ 
+
 k8s_firewall_ports:
   - "22"
   - "80"

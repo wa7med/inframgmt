@@ -57,7 +57,14 @@
     mode: '0755'
 
 - name: Apply k8s plugin
+  become: true
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin:{{ ansible_env.PATH }}"
+    KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
   command: bash /tmp/k8s_plugin.sh
+
+    #- name: Apply k8s plugin
+  #  command: bash /tmp/k8s_plugin.sh
 ####
 # Replace the single user RBAC setup with this loop
 - name: Copy RBAC setup script for each user
@@ -72,8 +79,16 @@
     timeout: 10
 
 - name: Run RBAC setup script for each user
+  become: true
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin:{{ ansible_env.PATH }}"
+    KUBECONFIG: "/etc/rancher/k3s/k3s.yaml"
   command: bash /tmp/rbac_k3s_setup_{{ item.name }}.sh
   loop: "{{ users }}"
+
+    #- name: Run RBAC setup script for each user
+    #command: bash /tmp/rbac_k3s_setup_{{ item.name }}.sh
+    #loop: "{{ users }}"
 
 - name: Check if users exist
   command: getent passwd {{ item.name }}
@@ -91,14 +106,48 @@
 
 ###
 
-- name: Install Helm
-  shell: |
-    wget https://get.helm.sh/helm-v3.13.1-linux-amd64.tar.gz
-    tar -xf helm-v3.13.1-linux-amd64.tar.gz
-    mv linux-amd64/helm /usr/local/bin/helm
-    helm completion bash >/etc/bash_completion.d/helm
-  args:
-    creates: /usr/local/bin/helm
+      #- name: Install Helm
+  # shell: |
+    # wget https://get.helm.sh/helm-v3.13.1-linux-amd64.tar.gz
+    # tar -xf helm-v3.13.1-linux-amd64.tar.gz
+    # mv linux-amd64/helm /usr/local/bin/helm
+    # helm completion bash >/etc/bash_completion.d/helm
+    #args:
+    #  creates: /usr/local/bin/helm
+
+
+- name: Download Helm archive
+  get_url:
+      url: https://get.helm.sh/helm-v3.13.1-linux-amd64.tar.gz
+      dest: /tmp/helm.tar.gz
+      mode: '0644'
+
+- name: Extract Helm
+  unarchive:
+    src: /tmp/helm.tar.gz
+    dest: /tmp/
+    remote_src: yes
+
+- name: Move Helm binary to /usr/local/bin
+  copy:
+    src: /tmp/linux-amd64/helm
+    dest: /usr/local/bin/helm
+    remote_src: yes
+    mode: '0755'
+
+- name: Generate Helm bash completion
+  command: helm completion bash
+  register: helm_completion
+  environment:
+    PATH: "/usr/local/bin:/usr/bin:/bin:{{ ansible_env.PATH }}"
+    
+    
+- name: Write Helm completion to file
+  copy:
+    dest: /etc/bash_completion.d/helm
+    content: "{{ helm_completion.stdout }}"
+  
+
 
 - name: Cleanup Helm files
   file:
