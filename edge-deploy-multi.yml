@@ -1,0 +1,183 @@
+- name: Deploy Edge Helm Chart
+  hosts: multi-ns
+  gather_facts: yes
+  vars_files:
+    - multi_vars.yml
+  vars:
+
+    # Edge Name
+    edge_name: "Azure-{{ item.namespace }}"
+
+    # URL of the OCI Helm registry where the Edge Helm chart is hosted
+    registry: rotterdam-prod-registry-emea.sncapps.service-now.com
+
+    # Username for authenticating with the Helm registry
+    registry_username: "robot$main+schwarz"
+
+    # Password for authenticating with the Helm registry (should be securely stored)
+    registry_password: "D!z@BRYNTf4RmpIG"
+
+    # URL of the ServiceNow instance used during certificate generation
+    instance_url: "https://subprodsmartopsae1.service-now.com"
+
+    # Key required for installation, which includes an encrypted value
+    installation_key: "b4e7782883f6e2d05a1f70ffeeaad3a0:90C66E56404B48E988EDD0F0C5F807216EB344F5DAF9AAB3BB58470ADA4BDCF0"
+
+   # Package version
+    helm_package_version: "3.2.234-scratch2"
+
+    # User ID under which the Helm release should run
+    user_id: 1000
+
+    # Kubernetes namespace where the Edge Helm chart will be deployed
+    #namespace: "{{ item.namespace }}"
+
+    # Path to the Python interpreter used for executing Ansible tasks
+    ansible_python_interpreter: /usr/bin/python3
+
+    # Number of GPUs to be allocated to the Edge workload
+    gpu_count: "1"
+
+    # Whether to enable proxy settings for the Edge components
+    proxy_enabled: false
+
+    # Address of the proxy server, if enabled
+    proxy_address: "http://myproxy"
+
+    # Enable or disable the use of hostPath for storage
+    enable_hostpath: true
+
+    # Path on the host to be used for storage when hostPath is enabled
+    edge_hostpath: "/opt/{{ item.namespace }}/data/"
+
+
+    # Enable the Shared GPU option
+    EnableSharedGPU: true
+
+    # Message displayed at the start of the installation
+    welcome_message: |
+      ***********************************************
+      **                                           **
+      **      Welcome to the ServiceNow Edge       **
+      **               Installation!               **
+      **                                           **
+      ***********************************************
+      **   Ensure all prerequisites are met        **
+      **   on the target servers.                  **
+      ***********************************************
+      **   If you're unsure, refer to the User     **
+      **   Guide document or reach out to the      **
+      **   SmartOps DevOps team for assistance.    **
+      ***********************************************
+
+    # Message displayed at the end of the installation
+    end_message: |
+      ***********************************************
+      **                                           **
+      **      Installation Completed Successfully  **
+      **                                           **
+      ***********************************************
+      **   Please note:                            **
+      **   Pods may take some time to be ready.    **
+      **   This depends on the connection speed    **
+      **   to the registry for pulling images.     **
+      **                                           **
+      ***********************************************
+      **  To check deploy status, use the command: **
+      **   helm status edge -n <namespace-name>    **
+      ***********************************************
+      **   Thank you for using the installer!      **
+      ***********************************************
+
+
+  tasks:
+    - name: Display welcome message
+      debug:
+        msg: "{{ welcome_message.split('\n') }}"
+
+    - name: Ensure Kubernetes (kubectl) is installed
+      command: kubectl version --client
+      register: kubectl_check
+      ignore_errors: yes
+
+    - name: Fail if Kubernetes is not installed
+      fail:
+        msg: "Kubernetes (kubectl) is not installed on this host."
+      when: kubectl_check.rc != 0
+
+    - name: Ensure Helm is installed
+      command: helm version
+      register: helm_check
+      ignore_errors: yes
+
+    - name: Fail if Helm is not installed
+      fail:
+        msg: "Helm is not installed on this host."
+      when: helm_check.rc != 0
+
+    - name: Log in to Helm registry (with retries)
+      command: helm registry login --username {{ registry_username }} --password {{ registry_password }} {{ registry }}
+      register: helm_login_result
+      retries: 3
+      delay: 10
+      ignore_errors: no
+
+    - name: Deploy Edge Helm Chart per user/namespace
+      block:
+        - name: Check Helm release status
+          command: helm status edge -n {{ item.namespace }}
+          register: helm_status
+          ignore_errors: true
+
+        - name: Uninstall existing failed/pending release
+          command: helm uninstall edge -n {{ item.namespace }}
+          when: helm_status.rc == 0 and ('failed' in helm_status.stdout or 'pending' in helm_status.stdout)
+
+        - name: Install or upgrade Edge Helm chart
+          kubernetes.core.helm:
+            name: edge
+            chart_ref: oci://{{ registry }}/main/helm/edge
+            chart_version: "{{ helm_package_version }}"
+            release_namespace: "{{ item.namespace }}"
+            values:
+              global:
+                enableSharedGPU: "{{ EnableSharedGPU }}"
+                securityContext:
+                  runAsUser: "{{ user_id }}"
+                  runAsGroup: "{{ user_id }}"
+                imageRegistry: "{{ registry }}"
+                registryCredentials:
+                  username: "{{ registry_username }}"
+                  password: "{{ registry_password }}"
+                storageClass: ""
+                storage:
+                  useHostPath: "{{ enable_hostpath }}"
+                  hostPath: "{{ edge_hostpath }}"
+                proxy:
+                  PROXY_ENABLE: "{{ proxy_enabled }}"
+                  PROXY_ADDRESS: "{{ proxy_address }}"
+              edge-config-api:
+                config:
+                  DEEP_STREAM_GPU_COUNT: "{{ gpu_count }}"
+              edge-deepstream-triton:
+                resources:
+                  limits:
+                    nvidia.com/gpu: "{{ gpu_count }}"
+                  requests:
+                    nvidia.com/gpu: "{{ gpu_count }}"
+              edge-cert-bootstrap:
+                certParams:
+                  instance_url: "{{ instance_url }}"
+                  installation_key: "{{ installation_key }}"
+                  edgeName: "{{ edge_name }}"
+            state: present
+            timeout: 800s
+          when: helm_login_result is succeeded
+      loop: "{{ users }}"
+      loop_control:
+        label: "{{ item.namespace }}"
+
+    - name: Installation completed message
+      debug:
+        msg: "{{ end_message.split('\n') }}"
+
