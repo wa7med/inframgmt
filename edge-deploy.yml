@@ -1,10 +1,13 @@
 - name: Deploy Edge Helm Chart
   hosts: multi-ns
+  become: true
   gather_facts: yes
+  vars_files:
+    - env_vars.yml  
   vars:
 
     # Edge Name
-      edge_name: "Azure-Nmaespaces"
+    edge_name: "Azure-{{ namespace }}"
     # URL of the OCI Helm registry where the Edge Helm chart is hosted
     registry: rotterdam-prod-registry-emea.sncapps.service-now.com
 
@@ -27,7 +30,7 @@
     user_id: 1000
 
     # Kubernetes namespace where the Edge Helm chart will be deployed
-    namespace: Edge
+    namespace: "{{ namespace }}"
 
     # Path to the Python interpreter used for executing Ansible tasks
     ansible_python_interpreter: /usr/bin/python3
@@ -45,7 +48,7 @@
     enable_hostpath: true
 
     # Path on the host to be used for storage when hostPath is enabled
-    edge_hostpath: "/opt/cvp/data/"
+    edge_hostpath: "/opt/{{ user_name }}/data/"
 
     # Enable the Shared GPU option
     EnableSharedGPU: true
@@ -96,6 +99,10 @@
       command: kubectl version --client
       register: kubectl_check
       ignore_errors: yes
+      environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin"
+        KUBECONFIG: "/root/.kube/config-{{ user_name }}"
+
 
     # Fail the task if Kubernetes is not installed
     - name: Fail if Kubernetes is not installed
@@ -108,6 +115,10 @@
       command: helm version
       register: helm_check
       ignore_errors: yes
+      environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin"
+        KUBECONFIG: "/root/.kube/config-{{ user_name }}"
+
 
     # Fail the task if Helm is not installed
     - name: Fail if Helm is not installed
@@ -117,7 +128,7 @@
 
     # Log in to the Helm OCI registry with retries in case of network issues
     - name: Log in to Helm registry (with retries)
-      command: helm registry login --username {{ registry_username }} --password {{ registry_password }} {{ registry }}
+      command: /usr/local/bin/helm registry login --username {{ registry_username }} --password {{ registry_password }} {{ registry }}
       register: helm_login_result
       retries: 3
       delay: 10
@@ -126,12 +137,12 @@
     # Install or upgrade the Edge Helm chart
 
     - name: Check Helm release status
-      command: helm status edge -n {{ namespace }}
+      command: /usr/local/bin/helm status edge -n {{ namespace }}
       register: helm_status
       ignore_errors: true
 
     - name: Force uninstall if Helm release is in a failed or pending state
-      command: helm uninstall edge -n {{ namespace }}
+      command: /usr/local/bin/helm uninstall edge -n {{ namespace }}
       when: helm_status.rc == 0 and ('failed' in helm_status.stdout or 'pending' in helm_status.stdout)
 
     - name: Install or upgrade Edge
@@ -140,6 +151,7 @@
         chart_ref: oci://{{ registry }}/main/helm/edge
         chart_version: "{{ helm_package_version }}"
         release_namespace: "{{ namespace }}"
+        binary_path: /usr/local/bin/helm
         values:
           global:
             enableSharedGPU: "{{ EnableSharedGPU }}"

@@ -4,7 +4,8 @@
   vars_files:
     - multi_vars.yml
   vars:
-
+    #
+    kubeconfig_path: "/root/.kube/config"
     # Edge Name
     edge_name: "Azure-{{ item.namespace }}"
 
@@ -121,63 +122,77 @@
       retries: 3
       delay: 10
       ignore_errors: no
+####
 
-    - name: Deploy Edge Helm Chart per user/namespace
-      block:
-        - name: Check Helm release status
-          command: helm status edge -n {{ item.namespace }}
-          register: helm_status
-          ignore_errors: true
+ #   - name: Check Helm release status
+  #    command: helm status edge -n {{ item.namespace }}
+   #   register: helm_status
+    #  ignore_errors: true
+     # loop: "{{ users }}"
+#      loop_control:
+#        label: "{{ item.namespace }}"
+#      environment:
+#        KUBECONFIG: "{{ kubeconfig_path }}"
 
-        - name: Uninstall existing failed/pending release
-          command: helm uninstall edge -n {{ item.namespace }}
-          when: helm_status.rc == 0 and ('failed' in helm_status.stdout or 'pending' in helm_status.stdout)
+#    - name: Uninstall existing failed/pending release
+#      command: helm uninstall edge -n {{ item.namespace }}
+#      when: helm_status is defined and helm_status.rc == 0 and (
+#              'failed' in helm_status.stdout or
+#              'pending' in helm_status.stdout)
+#      loop: "{{ users }}"
+#      loop_control:
+#        label: "{{ item.namespace }}"
+#      environment:
+#        KUBECONFIG: "{{ kubeconfig_path }}"
 
-        - name: Install or upgrade Edge Helm chart
-          kubernetes.core.helm:
-            name: edge
-            chart_ref: oci://{{ registry }}/main/helm/edge
-            chart_version: "{{ helm_package_version }}"
-            release_namespace: "{{ item.namespace }}"
-            values:
-              global:
-                enableSharedGPU: "{{ EnableSharedGPU }}"
-                securityContext:
-                  runAsUser: "{{ user_id }}"
-                  runAsGroup: "{{ user_id }}"
-                imageRegistry: "{{ registry }}"
-                registryCredentials:
-                  username: "{{ registry_username }}"
-                  password: "{{ registry_password }}"
-                storageClass: ""
-                storage:
-                  useHostPath: "{{ enable_hostpath }}"
-                  hostPath: "{{ edge_hostpath }}"
-                proxy:
-                  PROXY_ENABLE: "{{ proxy_enabled }}"
-                  PROXY_ADDRESS: "{{ proxy_address }}"
-              edge-config-api:
-                config:
-                  DEEP_STREAM_GPU_COUNT: "{{ gpu_count }}"
-              edge-deepstream-triton:
-                resources:
-                  limits:
-                    nvidia.com/gpu: "{{ gpu_count }}"
-                  requests:
-                    nvidia.com/gpu: "{{ gpu_count }}"
-              edge-cert-bootstrap:
-                certParams:
-                  instance_url: "{{ instance_url }}"
-                  installation_key: "{{ installation_key }}"
-                  edgeName: "{{ edge_name }}"
-            state: present
-            timeout: 800s
-          when: helm_login_result is succeeded
+    - name: Install or upgrade Edge Helm chart
+      kubernetes.core.helm:
+        name: edge
+        chart_ref: oci://{{ registry }}/main/helm/edge
+        chart_version: "{{ helm_package_version }}"
+        release_namespace: "{{ item.namespace }}"
+        values:
+          global:
+            enableSharedGPU: "{{ EnableSharedGPU }}"
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+            imageRegistry: "{{ registry }}"
+            registryCredentials:
+              username: "{{ registry_username }}"
+              password: "{{ registry_password }}"
+            storageClass: ""
+            storage:
+              useHostPath: "{{ enable_hostpath }}"
+              hostPath: "/opt/{{ item.namespace }}/data/"
+            proxy:
+              PROXY_ENABLE: "{{ proxy_enabled }}"
+              PROXY_ADDRESS: "{{ proxy_address }}"
+          edge-config-api:
+            config:
+              DEEP_STREAM_GPU_COUNT: "{{ gpu_count }}"
+          edge-deepstream-triton:
+            resources:
+              limits:
+                nvidia.com/gpu: "{{ gpu_count }}"
+              requests:
+                nvidia.com/gpu: "{{ gpu_count }}"
+          edge-cert-bootstrap:
+            certParams:
+              instance_url: "{{ instance_url }}"
+              installation_key: "{{ installation_key }}"
+              edgeName: "edge_name"
+        state: present
+        timeout: 800s
+      when: helm_login_result is succeeded
       loop: "{{ users }}"
       loop_control:
         label: "{{ item.namespace }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
 
-    - name: Installation completed message
+    - name: Display end message
       debug:
         msg: "{{ end_message.split('\n') }}"
 
+####

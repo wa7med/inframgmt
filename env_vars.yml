@@ -1,6 +1,6 @@
 # vars.yml
-namespace: "cvp"
-user_name: "cvp_adm"
+namespace: "app"
+user_name: "u_app"
 user_password: "P@ssw0rd"
 k8s_firewall_ports:
   - "22"
