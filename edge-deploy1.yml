@@ -1,6 +1,7 @@
 - name: Deploy Edge Helm Chart
   hosts: multi-ns
   become: true
+  become_user: u_horus
   gather_facts: yes
   vars_files:
     - env_vars.yml  
@@ -149,11 +150,7 @@
       when: helm_status.rc == 0 and ('failed' in helm_status.stdout or 'pending' in helm_status.stdout)
 
 
-
-    - name: Install or upgrade Edge
-      become: true
-      become_user: u_horus
-      delegate_to: localhost
+    - name: Install or upgrade Edge chart
       kubernetes.core.helm:
         name: edge
         chart_ref: oci://{{ registry }}/main/helm/edge
@@ -173,11 +170,11 @@
               password: "{{ registry_password }}"
             storageClass: ""
             storage:
-              useHostPath: "{{ enable_hostpath  }}"
+              useHostPath: "{{ enable_hostpath }}"
               hostPath: "{{ edge_hostpath }}"
             proxy:
-               PROXY_ENABLE: "{{ proxy_enabled }}"
-               PROXY_ADDRESS: "{{ proxy_address }}"
+              PROXY_ENABLE: "{{ proxy_enabled }}"
+              PROXY_ADDRESS: "{{ proxy_address }}"
           edge-config-api:
             config:
               DEEP_STREAM_GPU_COUNT: "{{ gpu_count }}"
@@ -194,7 +191,10 @@
               edgeName: "{{ edge_name }}"
         state: present
         timeout: 800s
+      environment:
+        PATH: "/usr/local/bin:/usr/bin:/bin"
       when: helm_login_result is succeeded
+
 
     # Display a message to indicate successful installation
     - name: Installation Completed message
