@@ -6,8 +6,8 @@ CERT_DIR_NAME=".certs"
 KUBECONFIG_DIR_NAME=".kube"
 CLUSTER_NAME="k3s-cluster"
 API_SERVER="https://127.0.0.1:6443"
-CA_CERT="/etc/rancher/k3s/ssl/ca.crt"
-CA_KEY="/etc/rancher/k3s/ssl/ca.key"
+CA_CERT="/var/lib/rancher/k3s/server/tls/server-ca.crt"
+CA_KEY="/var/lib/rancher/k3s/server/tls/client-ca.key"
 
 # List of users and their namespaces (same name as user)
 USERS=("u_horus" "u_sphinx" "u_auto" "u_perform" "u_e2e" "u_devops" "u_shared")
@@ -25,23 +25,23 @@ for USER in "${USERS[@]}"; do
     echo "==> Setting up certs and kubeconfig for ${USER}"
 
     # Create directories
-    mkdir -p "${CERT_DIR}" "${KUBECONFIG_DIR}"
-    chown -R ${USER}:${USER} "${CERT_DIR}" "${KUBECONFIG_DIR}"
-    chmod 700 "${KUBECONFIG_DIR}"
+    sudo mkdir -p "${CERT_DIR}" "${KUBECONFIG_DIR}"
+    sudo chown -R ${USER}:${USER} "${CERT_DIR}" "${KUBECONFIG_DIR}"
+    sudo chmod 700 "${KUBECONFIG_DIR}"
 
     # Generate private key
-    openssl genrsa -out "${USER_KEY}" 2048
+    sudo openssl genrsa -out "${USER_KEY}" 2048
 
     # Generate CSR
-    openssl req -new -key "${USER_KEY}" -out "${USER_CSR}" -subj "/CN=${USER}/O=${USER_NAMESPACE}"
+    sudo openssl req -new -key "${USER_KEY}" -out "${USER_CSR}" -subj "/CN=${USER}/O=${USER_NAMESPACE}"
 
     # Sign the certificate with the cluster CA
-    openssl x509 -req -in "${USER_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" \
+    sudo openssl x509 -req -in "${USER_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" \
         -CAcreateserial -out "${USER_CRT}" -days 365
 
     # Set permissions
-    chown ${USER}:${USER} "${USER_KEY}" "${USER_CSR}" "${USER_CRT}"
-    chmod 600 "${USER_KEY}" "${USER_CRT}"
+    sudo chown ${USER}:${USER} "${USER_KEY}" "${USER_CSR}" "${USER_CRT}"
+    sudo chmod 600 "${USER_KEY}" "${USER_CRT}"
 
     # Create kubeconfig file
     kubectl config --kubeconfig="${KUBECONFIG}" set-cluster "${CLUSTER_NAME}" \
@@ -56,11 +56,11 @@ for USER in "${USERS[@]}"; do
     kubectl config --kubeconfig="${KUBECONFIG}" use-context "${USER}-context"
 
     # Final ownership and permissions
-    chown -R ${USER}:${USER} "${KUBECONFIG}"
-    chmod 600 "${KUBECONFIG}"
+    sudo chown -R ${USER}:${USER} "${KUBECONFIG}"
+    sudo chmod 600 "${KUBECONFIG}"
 
     echo "✅ Completed for ${USER}"
 done
 
-echo "🎉 All user kubeconfigs and certificates are ready!"
+echo " All user kubeconfigs and certificates are ready!"
 
