@@ -2,78 +2,69 @@
 
 set -e
 
-# Configuration
-K3S_CONFIG="/etc/rancher/k3s/k3s.yaml"
-CLIENT_CA_KEY="/var/lib/rancher/k3s/server/tls/client-ca.key"
-CLIENT_CA_CRT="/var/lib/rancher/k3s/server/tls/client-ca.crt"
+# List of users
+USERS=("u_sphinx" "u_auto" "u_perform" "u_e2e" "u_devops" "u_shared")
 
-EXPIRY_DAYS=365
-ISSUER="ServiceNow"
-OU="DevOps"
+# K3s settings
+K3S_CA="/var/lib/rancher/k3s/server/tls/client-ca.crt"
+K3S_SERVER="https://127.0.0.1:6443"
 
-users=("u_horus" "u_sphinx" "u_auto" "u_perform" "u_e2e" "u_devops" "u_shared")
+for USER in "${USERS[@]}"; do
+    HOME_DIR="/home/$USER"
+    CERT_DIR="$HOME_DIR/.certs"
+    KUBECONFIG_DIR="$HOME_DIR/.kube"
+    KUBECONFIG_FILE="$KUBECONFIG_DIR/config"
+    USER_KEY="$CERT_DIR/${USER}.key"
+    USER_CRT="$CERT_DIR/${USER}.crt"
+    USER_PEM="$CERT_DIR/${USER}.pem"
+    USER_CA="$CERT_DIR/ca.crt"
 
-for user in "${users[@]}"; do
-    namespace=$(echo "$user" | cut -d'_' -f2)
-    cert_dir="/home/$user/.certs"
-    kubeconfig_path="/home/$user/.kube/config"
-    mkdir -p "$cert_dir" "/home/$user/.kube"
+    echo "==> Setting up $USER"
 
-    # Generate key and CSR
-    openssl genrsa -out "$cert_dir/$user.key" 2048
-    openssl req -new -key "$cert_dir/$user.key" \
-        -out "$cert_dir/$user.csr" \
-        -subj "/CN=$user/O=$OU"
+    # Create dirs
+    mkdir -p "$CERT_DIR" "$KUBECONFIG_DIR"
+    chmod 700 "$CERT_DIR" "$KUBECONFIG_DIR"
+    chown -R "$USER:$USER" "$CERT_DIR" "$KUBECONFIG_DIR"
 
-    # Sign the certificate
-    openssl x509 -req -in "$cert_dir/$user.csr" \
-        -CA "$CLIENT_CA_CRT" -CAkey "$CLIENT_CA_KEY" -CAcreateserial \
-        -out "$cert_dir/$user.crt" -days "$EXPIRY_DAYS" -sha256 \
-        -extfile <(printf "subjectAltName=DNS:$user") -extensions v3_req
+    # Generate private key
+    openssl genrsa -out "$USER_KEY" 2048
+    openssl rsa -in "$USER_KEY" -out "$USER_PEM"
 
-    # Set file permissions
-    chown -R "$user:$user" "$cert_dir"
-    chmod 600 "$cert_dir/$user.key" "$cert_dir/$user.crt"
+    # Generate self-signed cert
+    openssl req -new -key "$USER_KEY" -x509 -days 365 \
+        -out "$USER_CRT" \
+        -subj "/CN=$USER/O=$USER"
+
+    # Copy CA cert
+    cp "$K3S_CA" "$USER_CA"
+    chmod 644 "$USER_CA"
+    chown "$USER:$USER" "$USER_CA"
 
     # Create kubeconfig
-    server=$(yq eval '.clusters[0].cluster.server' "$K3S_CONFIG")
-    cluster_name=$(yq eval '.clusters[0].name' "$K3S_CONFIG")
-    cluster_ca=$(yq eval '.clusters[0].cluster.certificate-authority-data' "$K3S_CONFIG")
-
-    cat > "$kubeconfig_path" <<EOF
+    cat > "$KUBECONFIG_FILE" <<EOF
 apiVersion: v1
 kind: Config
 clusters:
-- cluster:
-    certificate-authority-data: $cluster_ca
-    server: $server
-  name: $cluster_name
+- name: k3s-cluster
+  cluster:
+    certificate-authority: $USER_CA
+    server: $K3S_SERVER
 contexts:
-- context:
-    cluster: $cluster_name
-    namespace: $namespace
-    user: $user
-  name: $user-context
-current-context: $user-context
+- name: $USER-context
+  context:
+    cluster: k3s-cluster
+    user: $USER
+current-context: $USER-context
 users:
-- name: $user
+- name: $USER
   user:
-    client-certificate: $cert_dir/$user.crt
-    client-key: $cert_dir/$user.key
+    client-certificate: $USER_CRT
+    client-key: $USER_PEM
 EOF
 
-    chown "$user:$user" "$kubeconfig_path"
-    chmod 600 "$kubeconfig_path"
+    chown "$USER:$USER" "$KUBECONFIG_FILE"
+    chmod 600 "$KUBECONFIG_FILE"
 
-    # Create namespace and RBAC binding
-    kubectl get ns "$namespace" >/dev/null 2>&1 || kubectl create ns "$namespace"
-
-    kubectl create rolebinding "${user}-access" \
-        --clusterrole=view \
-        --user="$user" \
-        --namespace="$namespace" \
-        --dry-run=client -o yaml | kubectl apply -f -
-
-    echo "✅ $user setup complete for namespace: $namespace"
+    echo "✅ $USER is ready"
 done
 
