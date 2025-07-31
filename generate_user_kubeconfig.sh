@@ -1,66 +1,79 @@
 #!/bin/bash
 
-# Base directory where user certs will be stored
-BASE_DIR="/home"
-CERT_DIR_NAME=".certs"
-KUBECONFIG_DIR_NAME=".kube"
-CLUSTER_NAME="k3s-cluster"
-API_SERVER="https://127.0.0.1:6443"
-CA_CERT="/var/lib/rancher/k3s/server/tls/server-ca.crt"
-CA_KEY="/var/lib/rancher/k3s/server/tls/client-ca.key"
+set -e
 
-# List of users and their namespaces (same name as user)
-USERS=("u_horus" "u_sphinx" "u_auto" "u_perform" "u_e2e" "u_devops" "u_shared")
+# Configuration
+K3S_CONFIG="/etc/rancher/k3s/k3s.yaml"
+CLIENT_CA_KEY="/var/lib/rancher/k3s/server/tls/client-ca.key"
+CLIENT_CA_CRT="/var/lib/rancher/k3s/server/tls/client-ca.crt"
 
-for USER in "${USERS[@]}"; do
-    USER_HOME="${BASE_DIR}/${USER}"
-    CERT_DIR="${USER_HOME}/${CERT_DIR_NAME}"
-    KUBECONFIG_DIR="${USER_HOME}/${KUBECONFIG_DIR_NAME}"
-    USER_KEY="${CERT_DIR}/${USER}.pem"
-    USER_CSR="${CERT_DIR}/${USER}.csr"
-    USER_CRT="${CERT_DIR}/${USER}.crt"
-    KUBECONFIG="${KUBECONFIG_DIR}/config"
-    USER_NAMESPACE="${USER}"
+EXPIRY_DAYS=365
+ISSUER="ServiceNow"
+OU="DevOps"
 
-    echo "==> Setting up certs and kubeconfig for ${USER}"
+users=("u_horus" "u_sphinx" "u_auto" "u_perform" "u_e2e" "u_devops" "u_shared")
 
-    # Create directories
-    sudo mkdir -p "${CERT_DIR}" "${KUBECONFIG_DIR}"
-    sudo chown -R ${USER}:${USER} "${CERT_DIR}" "${KUBECONFIG_DIR}"
-    sudo chmod 700 "${KUBECONFIG_DIR}"
+for user in "${users[@]}"; do
+    namespace=$(echo "$user" | cut -d'_' -f2)
+    cert_dir="/home/$user/.certs"
+    kubeconfig_path="/home/$user/.kube/config"
+    mkdir -p "$cert_dir" "/home/$user/.kube"
 
-    # Generate private key
-    sudo openssl genrsa -out "${USER_KEY}" 2048
+    # Generate key and CSR
+    openssl genrsa -out "$cert_dir/$user.key" 2048
+    openssl req -new -key "$cert_dir/$user.key" \
+        -out "$cert_dir/$user.csr" \
+        -subj "/CN=$user/O=$OU"
 
-    # Generate CSR
-    sudo openssl req -new -key "${USER_KEY}" -out "${USER_CSR}" -subj "/CN=${USER}/O=${USER_NAMESPACE}"
+    # Sign the certificate
+    openssl x509 -req -in "$cert_dir/$user.csr" \
+        -CA "$CLIENT_CA_CRT" -CAkey "$CLIENT_CA_KEY" -CAcreateserial \
+        -out "$cert_dir/$user.crt" -days "$EXPIRY_DAYS" -sha256 \
+        -extfile <(printf "subjectAltName=DNS:$user") -extensions v3_req
 
-    # Sign the certificate with the cluster CA
-    sudo openssl x509 -req -in "${USER_CSR}" -CA "${CA_CERT}" -CAkey "${CA_KEY}" \
-        -CAcreateserial -out "${USER_CRT}" -days 365
+    # Set file permissions
+    chown -R "$user:$user" "$cert_dir"
+    chmod 600 "$cert_dir/$user.key" "$cert_dir/$user.crt"
 
-    # Set permissions
-    sudo chown ${USER}:${USER} "${USER_KEY}" "${USER_CSR}" "${USER_CRT}"
-    sudo chmod 600 "${USER_KEY}" "${USER_CRT}"
+    # Create kubeconfig
+    server=$(yq eval '.clusters[0].cluster.server' "$K3S_CONFIG")
+    cluster_name=$(yq eval '.clusters[0].name' "$K3S_CONFIG")
+    cluster_ca=$(yq eval '.clusters[0].cluster.certificate-authority-data' "$K3S_CONFIG")
 
-    # Create kubeconfig file
-    kubectl config --kubeconfig="${KUBECONFIG}" set-cluster "${CLUSTER_NAME}" \
-        --server="${API_SERVER}" --certificate-authority="${CA_CERT}" --embed-certs=true
+    cat > "$kubeconfig_path" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: $cluster_ca
+    server: $server
+  name: $cluster_name
+contexts:
+- context:
+    cluster: $cluster_name
+    namespace: $namespace
+    user: $user
+  name: $user-context
+current-context: $user-context
+users:
+- name: $user
+  user:
+    client-certificate: $cert_dir/$user.crt
+    client-key: $cert_dir/$user.key
+EOF
 
-    kubectl config --kubeconfig="${KUBECONFIG}" set-credentials "${USER}" \
-        --client-certificate="${USER_CRT}" --client-key="${USER_KEY}" --embed-certs=true
+    chown "$user:$user" "$kubeconfig_path"
+    chmod 600 "$kubeconfig_path"
 
-    kubectl config --kubeconfig="${KUBECONFIG}" set-context "${USER}-context" \
-        --cluster="${CLUSTER_NAME}" --namespace="${USER_NAMESPACE}" --user="${USER}"
+    # Create namespace and RBAC binding
+    kubectl get ns "$namespace" >/dev/null 2>&1 || kubectl create ns "$namespace"
 
-    kubectl config --kubeconfig="${KUBECONFIG}" use-context "${USER}-context"
+    kubectl create rolebinding "${user}-access" \
+        --clusterrole=view \
+        --user="$user" \
+        --namespace="$namespace" \
+        --dry-run=client -o yaml | kubectl apply -f -
 
-    # Final ownership and permissions
-    sudo chown -R ${USER}:${USER} "${KUBECONFIG}"
-    sudo chmod 600 "${KUBECONFIG}"
-
-    echo "✅ Completed for ${USER}"
+    echo "✅ $user setup complete for namespace: $namespace"
 done
-
-echo " All user kubeconfigs and certificates are ready!"
 
