@@ -2,69 +2,55 @@
 
 set -e
 
-# List of users
-USERS=("u_sphinx" "u_auto" "u_perform" "u_e2e" "u_devops" "u_shared")
+USER_NAME=$1
+NAMESPACE=$2
 
-# K3s settings
-K3S_CA="/var/lib/rancher/k3s/server/tls/client-ca.crt"
-K3S_SERVER="https://127.0.0.1:6443"
+if [[ -z "$USER_NAME" || -z "$NAMESPACE" ]]; then
+  echo "Usage: $0 <username> <namespace>"
+  exit 1
+fi
 
-for USER in "${USERS[@]}"; do
-    HOME_DIR="/home/$USER"
-    CERT_DIR="$HOME_DIR/.certs"
-    KUBECONFIG_DIR="$HOME_DIR/.kube"
-    KUBECONFIG_FILE="$KUBECONFIG_DIR/config"
-    USER_KEY="$CERT_DIR/${USER}.key"
-    USER_CRT="$CERT_DIR/${USER}.crt"
-    USER_PEM="$CERT_DIR/${USER}.pem"
-    USER_CA="$CERT_DIR/ca.crt"
+USER_HOME="/home/$USER_NAME"
+CERT_DIR="$USER_HOME/.certs"
+KUBECONFIG_DIR="$USER_HOME/.kube"
+KEY_FILE="$CERT_DIR/$USER_NAME.key"
+CSR_FILE="$CERT_DIR/$USER_NAME.csr"
+CRT_FILE="$CERT_DIR/$USER_NAME.crt"
+CA_FILE="/var/lib/rancher/k3s/server/tls/client-ca.crt"
+CA_KEY="/var/lib/rancher/k3s/server/tls/client-ca.key"
 
-    echo "==> Setting up $USER"
+# Create cert directory
+sudo mkdir -p "$CERT_DIR"
+sudo chmod 700 "$CERT_DIR"
+sudo chown "$USER_NAME:$USER_NAME" "$CERT_DIR"
 
-    # Create dirs
-    mkdir -p "$CERT_DIR" "$KUBECONFIG_DIR"
-    chmod 700 "$CERT_DIR" "$KUBECONFIG_DIR"
-    chown -R "$USER:$USER" "$CERT_DIR" "$KUBECONFIG_DIR"
+# Generate private key
+sudo openssl genrsa -out "$KEY_FILE" 2048
 
-    # Generate private key
-    openssl genrsa -out "$USER_KEY" 2048
-    openssl rsa -in "$USER_KEY" -out "$USER_PEM"
+# Generate CSR
+sudo openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" -subj "/CN=$USER_NAME/O=$USER_NAME"
 
-    # Generate self-signed cert
-    openssl req -new -key "$USER_KEY" -x509 -days 365 \
-        -out "$USER_CRT" \
-        -subj "/CN=$USER/O=$USER"
+# Create extfile
+EXTFILE=$(mktemp)
+echo "extendedKeyUsage = clientAuth" > "$EXTFILE"
 
-    # Copy CA cert
-    cp "$K3S_CA" "$USER_CA"
-    chmod 644 "$USER_CA"
-    chown "$USER:$USER" "$USER_CA"
+# Sign the CSR
+sudo openssl x509 -req \
+  -in "$CSR_FILE" \
+  -CA "$CA_FILE" \
+  -CAkey "$CA_KEY" \
+  -CAcreateserial \
+  -out "$CRT_FILE" \
+  -days 365 \
+  -extfile "$EXTFILE" \
+  -sha256
 
-    # Create kubeconfig
-    cat > "$KUBECONFIG_FILE" <<EOF
-apiVersion: v1
-kind: Config
-clusters:
-- name: k3s-cluster
-  cluster:
-    certificate-authority: $USER_CA
-    server: $K3S_SERVER
-contexts:
-- name: $USER-context
-  context:
-    cluster: k3s-cluster
-    user: $USER
-current-context: $USER-context
-users:
-- name: $USER
-  user:
-    client-certificate: $USER_CRT
-    client-key: $USER_PEM
-EOF
+rm "$EXTFILE"
 
-    chown "$USER:$USER" "$KUBECONFIG_FILE"
-    chmod 600 "$KUBECONFIG_FILE"
+# Permissions
+sudo chown "$USER_NAME:$USER_NAME" "$CERT_DIR"/*
+sudo chmod 600 "$KEY_FILE"
+sudo chmod 644 "$CRT_FILE"
 
-    echo "✅ $USER is ready"
-done
+echo "[+] Certificate and key generated for user '$USER_NAME'"
 
