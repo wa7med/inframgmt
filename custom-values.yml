@@ -1,0 +1,156 @@
+edge-hashing-service:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-compare-worker:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-config-api:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-data-aggregation:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-data-persistence:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-dwell-time-processor:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-grpc-client-api:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-heartbeat-worker:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+edge-image-handler-api:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+edge-milvus-standalone:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+edge-simple-server:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+edge-servicemanager-worker:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+edge-shopping-time:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-rtsp-tool-:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-camera-snapshot:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+edge-alarm-generator-processor:
+  resources:
+    limits:
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 500Mi
+
+#######################
+
+
