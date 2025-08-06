@@ -1,156 +1,138 @@
-edge-hashing-service:
+      ## Custom values for edge Helm chart
+# This file overrides CPU requests for all edge services to 100m
+# and infrastructure components to 500m
+
+# Edge services CPU request overrides
+edge-alarm-generator-processor:
   resources:
-    limits:
-      memory: 4Gi
     requests:
       cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-compare-worker:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-config-api:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-data-aggregation:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-data-persistence:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-dwell-time-processor:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-grpc-client-api:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-heartbeat-worker:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-edge-image-handler-api:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-edge-milvus-standalone:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-edge-simple-server:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-edge-servicemanager-worker:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-edge-shopping-time:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
-
-edge-rtsp-tool-:
-  resources:
-    limits:
-      memory: 4Gi
-    requests:
-      cpu: 100m
-      memory: 500Mi
-
-#######################
 
 edge-camera-snapshot:
   resources:
-    limits:
-      memory: 4Gi
     requests:
       cpu: 100m
-      memory: 500Mi
 
-#######################
-
-edge-alarm-generator-processor:
+edge-compare-worker:
   resources:
-    limits:
-      memory: 4Gi
     requests:
       cpu: 100m
-      memory: 500Mi
 
-#######################
+edge-config-api:
+  resources:
+    requests:
+      cpu: 100m
 
+edge-crossing-line-api:
+  resources:
+    requests:
+      cpu: 100m
 
+edge-data-aggregation:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-data-persistence-processor:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-deepstream-formatter:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-deepstream:
+  deepstreamSnapshot:
+    resources:
+      requests:
+        cpu: 100m
+  deepstreamClearance:
+    resources:
+      requests:
+        cpu: 100m
+
+edge-dwell-time-processor:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-grpc-client-api:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-hashing-service:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-heartbeat-worker:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-image-handler-api:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-logger-delete-service:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-logger-presenting-service:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-logger-sink:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-rtsp-tool:
+  resources:
+    requests:
+      cpu: 100m
+  charts:
+    edge-simple-server:
+      resources:
+        requests:
+          cpu: 100m
+
+edge-servicemanager-worker:
+  resources:
+    requests:
+      cpu: 100m
+
+edge-shopping-time:
+  resources:
+    requests:
+      cpu: 100m
+
+# Infrastructure components CPU request overrides
+kafka:
+  resources:
+    requests:
+      cpu: 500m
+
+postgresql:
+  resources:
+    requests:
+      cpu: 500m
+  pgAgentResources:
+    requests:
+      cpu: 250m
+
+opensearch:
+  resources:
+    requests:
+      cpu: 500m
+
+milvus:
+  resources:
+    requests:
+      cpu: 500m Custom
